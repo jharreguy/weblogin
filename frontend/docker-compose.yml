@@ -1,0 +1,61 @@
+version: '3.9'
+
+services:
+
+  # ── MySQL ─────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: appdb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: AppDB
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d   # ejecuta los SQL al iniciar
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Backend C# ────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: appbackend
+    restart: unless-stopped
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=mysql;Port=3306;Database=AppDB;User=root;Password=${MYSQL_ROOT_PASSWORD};"
+      Jwt__Key:              ${JWT_KEY}
+      Jwt__Issuer:           AppApi
+      Jwt__Audience:         AppClient
+      Jwt__ExpirationHours:  8
+      Email__Host:           smtp.gmail.com
+      Email__Port:           587
+      Email__User:           ${EMAIL_USER}
+      Email__Password:       ${EMAIL_PASSWORD}
+      Email__From:           ${EMAIL_USER}
+      Cors__AllowedOrigins__0: http://localhost
+      ASPNETCORE_ENVIRONMENT: Production
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # ── Frontend Angular + Nginx ──────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: appfrontend
+    restart: unless-stopped
+    ports:
+      - "80:80"       # ← accedés desde http://localhost
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
